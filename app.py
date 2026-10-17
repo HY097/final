@@ -101,25 +101,28 @@ st.plotly_chart(fig, use_container_width=True)
 # 히트맵: 행=연도, 열=월, 셀값=월평균기온
 # 색상 기준: 전체 월 평균기온 값의 중앙값
 # ------------------------------------------------------------------
+# 히트맵: 행=연도, 열=월, 셀값=월평균기온
+# 색상 기준: 전체 월 평균기온 값의 중앙값
 st.subheader("연대(년) x 월 평균기온 히트맵")
 
 monthly = (
-    df.groupby([df["날짜"].dt.year, df["날짜"].dt.month])["평균기온(℃)"]
+    df.assign(연=df["날짜"].dt.year, 월=df["날짜"].dt.month)
+    .groupby(["연", "월"])["평균기온(℃)"]
     .mean()
-    .reset_index()
+    .unstack("월")
 )
-pivot = monthly.pivot(index=0, columns=1, values="평균기온(℃)").reindex(columns=range(1, 13))
 
-vals = pivot.values[~np.isnan(pivot.values)]
+# 중앙값 기준 색상 스케일 설정
+vals = monthly.values[~np.isnan(monthly.values)]
 median_val = float(np.median(vals))
 zmax = float(vals.max())
 zmin = 2 * median_val - zmax  # 중앙값이 색상 중앙(흰색)에 오도록 설정
 
 fig_heat = go.Figure(
     go.Heatmap(
-        z=pivot.values,
-        x=pivot.columns.astype(int),
-        y=pivot.index.astype(int),
+        z=monthly.values,
+        x=monthly.columns.astype(int),
+        y=monthly.index.astype(int),
         colorscale="RdBu_r",
         zmin=zmin,
         zmax=zmax,
