@@ -2,21 +2,32 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
+import io
 
 st.set_page_config(page_title="서울 기온 추이 분석", layout="wide")
 
 # ------------------------------------------------------------------
-# 데이터 로드 (utf-8-sig: BOM 제거, 탭 문자 strip)
+# 데이터 로드
 # ------------------------------------------------------------------
 @st.cache_data
-def load_data(path):
-    df = pd.read_csv(path, encoding="utf-8-sig")
+def load_data_from_bytes(data: bytes) -> pd.DataFrame:
+    df = pd.read_csv(io.BytesIO(data), encoding="utf-8-sig")
     df["날짜"] = df["날짜"].str.strip()
     df["날짜"] = pd.to_datetime(df["날짜"])
     df["연"] = df["날짜"].dt.year
     return df
 
-df = load_data("seoul_temperature.csv")
+uploaded = st.file_uploader("seoul_temperature.csv 파일을 선택하세요", type="csv")
+
+if uploaded is not None:
+    df = load_data_from_bytes(uploaded.read())
+else:
+    try:
+        df = load_data_from_bytes(open("seoul_temperature.csv", "rb").read())
+    except FileNotFoundError:
+        st.error("seoul_temperature.csv 파일을 찾지 못했습니다.")
+        st.info("① app.py와 같은 폴더에 seoul_temperature.csv를 두거나, ② 파일 업로드 창에서 파일을 선택하세요.")
+        st.stop()
 
 # 1) 연도별 평균기온 집계
 annual = (
@@ -52,11 +63,8 @@ st.write(f"**{start}년 ~ {end}년**")
 for label, value in stats.items():
     st.metric(label=label, value=round(value, 1))
 
-st.dataframe(
-    filtered,
-    columns=["연", "연평균기온", "이동평균5년"],
-    use_container_width=True,
-)
+# 수정: columns 인자 제거 (최신 Streamlit은 columns 미지원)
+st.dataframe(filtered, use_container_width=True)
 
 # ------------------------------------------------------------------
 # 메인 그래프: 연평균기온 + 5년 이동평균
