@@ -98,45 +98,82 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 히트맵: 행=연도, 열=월, 셀값=월평균기온
-# 색상 기준: 전체 월 평균기온 값의 중앙값
-# ------------------------------------------------------------------
-# 히트맵: 행=연도, 열=월, 셀값=월평균기온
-# 색상 기준: 전체 월 평균기온 값의 중앙값
+# 히트맵: 연대(년) x 월, 셀값=월평균기온
+# 호버: 평균/최저/최고 표시, 컬러바 고정, 연도별 필터링 연동
 st.subheader("연대(년) x 월 평균기온 히트맵")
 
-monthly = (
+df_heat = sel_df
+
+# 연-월별 집계 (평균/최저/최고)
+monthly_agg = (
+    df_heat.assign(연=df_heat["날짜"].dt.year, 월=df_heat["날짜"].dt.month)
+    .groupby(["연", "월"])
+    .agg(월별평균=("평균기온(℃)", "mean"),
+         월최저=("최저기온(℃)", "min"),
+         월최고=("최고기온(℃)", "max"))
+    .reset_index()
+)
+
+pivot_mean = monthly_agg.pivot(index="연", columns="월", values="월별평균").reindex(columns=range(1, 13))
+pivot_min = monthly_agg.pivot(index="연", columns="월", values="월최저").reindex(index=pivot_mean.index, columns=pivot_mean.columns)
+pivot_max = monthly_agg.pivot(index="연", columns="월", values="월최고").reindex(index=pivot_mean.index, columns=pivot_mean.columns)
+
+# 호버 툴팁용 커스텀데이터: [최저기온, 최고기온] (shape: rows x cols x 2)
+customdata = np.dstack((pivot_min.values, pivot_max.values))
+
+# 컬러바 고정: 전체 연도 기준 최소/최대 (연도 범위 변경해도 색상 스케일이 동일)
+monthly_all = (
     df.assign(연=df["날짜"].dt.year, 월=df["날짜"].dt.month)
     .groupby(["연", "월"])["평균기온(℃)"]
     .mean()
     .unstack("월")
 )
-
-# 중앙값 기준 색상 스케일 설정
-vals = monthly.values[~np.isnan(monthly.values)]
-median_val = float(np.median(vals))
-zmax = float(vals.max())
-zmin = 2 * median_val - zmax  # 중앙값이 색상 중앙(흰색)에 오도록 설정
+global_zmin = float(np.nanmin(monthly_all.values))
+global_zmax = float(np.nanmax(monthly_all.values))
 
 fig_heat = go.Figure(
     go.Heatmap(
-        z=monthly.values,
-        x=monthly.columns.astype(int),
-        y=monthly.index.astype(int),
+        z=pivot_mean.values,
+        x=pivot_mean.columns.astype(int),
+        y=pivot_mean.index.astype(int),
         colorscale="RdBu_r",
-        zmin=zmin,
-        zmax=zmax,
-        colorbar=dict(title="평균기온 (℃)", title_side="right"),
-        hovertemplate="연도 %{y}년 · 월 %{x}월<br>평균기온 %{z:.1f}℃<extra></extra>",
+        zmin=global_zmin,
+        zmax=global_zmax,
+        customdata=customdata,
+        hovertemplate=(
+            "연도 %{y}년 · 월 %{x}월<br>"
+            "평균기온 %{z:.1f}℃<br>"
+            "최저기온 %{customdata[0]:.1f}℃<br>"
+            "최고기온 %{customdata[1]:.1f}℃<extra></extra>"
+        ),
     )
 )
 fig_heat.update_layout(
-    title="연대·월별 평균기온 히트맵",
+    title="연대·월별 평균기온 히트맵 (색상 기준: 전체 연도 공통 범위)",
     xaxis_title="월",
     yaxis_title="연도",
 )
 st.plotly_chart(fig_heat, use_container_width=True)
 
+# 3) 월별 평균 라인 (선택 구간 기준, 히트맵과 동일 범위)
+seasonal = pivot_mean.mean(axis=0)  # 월(1~12)별 평균
+
+fig_season = go.Figure(go.Scatter(
+    x=seasonal.index,
+    y=seasonal.values,
+    mode="lines+markers",
+    name="월별 평균기온",
+    line=dict(color="orange", width=2),
+))
+fig_season.update_layout(
+    title="선택 구간 월별 평균기온",
+    xaxis_title="월",
+    yaxis_title="평균기온 (℃)",
+    xaxis_tickvals=list(range(1, 13)),
+    xaxis_ticktext=["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"],
+)
+st.plotly_chart(fig_season, use_container_width=True)
+
 st.caption(
-    f"히트맵 색상 기준: 전체 월 평균기온 {len(vals)}개 값의 중앙값 = {median_val:.1f}℃"
+    f"히트맵 색상 기준: 전체 연도 공통 고정 범위 {global_zmin:.1f}℃ ~ {global_zmax:.1f}℃"
 )
